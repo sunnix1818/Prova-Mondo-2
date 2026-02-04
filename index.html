@@ -60,6 +60,7 @@ button{
 
 <div id="menu"></div>
 <canvas id="map"></canvas>
+<div id="hud" style="display:none"></div>
 <div id="info" style="display:none"></div>
 
 <script>
@@ -68,6 +69,8 @@ const canvas=document.getElementById("map");
 const ctx=canvas.getContext("2d");
 const menu=document.getElementById("menu");
 const info=document.getElementById("info");
+
+const hud=document.getElementById("hud");
 
 function resize(){
   canvas.width=innerWidth;
@@ -85,12 +88,10 @@ const path=d3.geoPath(projection,ctx);
 /* ===== ZOOM ===== */
 let transform=d3.zoomIdentity;
 d3.select(canvas).call(
-  d3.zoom()
-    .scaleExtent([1,10])
-    .on("zoom",e=>{
-      transform=e.transform;
-      draw();
-    })
+  d3.zoom().scaleExtent([1,10]).on("zoom",e=>{
+    transform=e.transform;
+    draw();
+  })
 );
 
 /* ===== STATE ===== */
@@ -99,19 +100,27 @@ let hovered=null;
 let selected=null;
 let mode="";
 let playerNation="";
-let currentTurn="player";
+let mapView="normal";
+let date={year:1800,month:1};
 
-const game={
-  regions:{}
-};
+const nations={};
+const game={regions:{}};
 
-/* ===== COLORI OWNER ===== */
-const COLORS={
+/* ===== COLORI ===== */
+function hashColor(name){
+  let h=0;
+  for(let c of name) h=c.charCodeAt(0)+((h<<5)-h);
+  return `hsl(${h%360},55%,45%)`;
+}
+
+const DIPLO_COLORS={
   player:"#2563eb",
-  ai:"#dc2626"
+  ally:"#16a34a",
+  neutral:"#facc15",
+  enemy:"#dc2626"
 };
 
-/* ===== MENU ===== */
+/* ===== MENU MAPPA ===== */
 function showMapMenu(){
   menu.innerHTML=`
     <h2>Seleziona mappa</h2>
@@ -125,7 +134,7 @@ function selectMap(m){
   mode=m;
   menu.innerHTML="<h2>Caricamento…</h2>";
 
-  if(mode==="europe"){
+  if(m==="europe"){
     projection.center([15,55]).scale(650);
     loadMap("https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson");
   }else{
@@ -134,30 +143,48 @@ function selectMap(m){
   }
 }
 
-/* ===== LOAD MAP ===== */
+/* ===== LOAD ===== */
 function loadMap(url){
   fetch(url).then(r=>r.json()).then(data=>{
     regions=data.features.map(r=>{
       r._name=r.properties.NAME||r.properties.ADMIN||r.properties.name;
       return r;
     });
+    buildNations();
     showNationMenu();
+  });
+}
+
+/* ===== NAZIONI ===== */
+function buildNations(){
+  regions.forEach(r=>{
+    if(!nations[r._name]){
+      nations[r._name]={
+        name:r._name,
+        color:hashColor(r._name),
+        flag:"🏳️",
+        money:100,
+        population:Math.floor(Math.random()*10+5)*1_000_000,
+        troops:5,
+        tech:1,
+        diplomacy:{}
+      };
+    }
   });
 }
 
 /* ===== SELEZIONE NAZIONE ===== */
 function showNationMenu(){
-  const nations=[...new Set(regions.map(r=>r._name))].sort();
-  menu.innerHTML="<h2>Scegli la nazione</h2>";
-
-  nations.forEach(n=>{
+  menu.innerHTML="<h2>Scegli la tua nazione</h2>";
+  Object.values(nations).forEach(n=>{
     const b=document.createElement("button");
-    b.textContent=n;
+    b.textContent=n.name;
     b.onclick=()=>{
-      playerNation=n;
-      menu.style.display="none";
-      info.style.display="block";
+      playerNation=n.name;
       initGame();
+      menu.style.display="none";
+      hud.style.display="block";
+      draw();
     };
     menu.appendChild(b);
   });
@@ -165,49 +192,72 @@ function showNationMenu(){
 
 /* ===== INIT GAME ===== */
 function initGame(){
-  game.regions={};
-
-  regions.forEach(r=>{
-    game.regions[r._name]={
-      owner: r._name===playerNation ? "player" : "ai",
-      troops: r._name===playerNation ? 5 : 1
-    };
+  Object.values(nations).forEach(n=>{
+    n.diplomacy[playerNation]= n.name===playerNation ? "player" : "neutral";
   });
 
-  info.innerHTML="Turno: TU";
-  draw();
+  regions.forEach(r=>{
+    game.regions[r._name]={ owner:r._name };
+  });
+
+  buildHUD();
+}
+
+/* ===== HUD ===== */
+function buildHUD(){
+  const n=nations[playerNation];
+  hud.innerHTML=`
+    <div style="position:fixed;inset:0;background:#020617cc;color:white;padding:20px">
+      <h1>${n.flag} ${n.name}</h1>
+      <p>📅 ${date.year}-${String(date.month).padStart(2,"0")}</p>
+      <p>💰 Soldi: ${n.money}</p>
+      <p>👥 Popolazione: ${n.population.toLocaleString()}</p>
+      <p>⚔️ Truppe: ${n.troops}</p>
+      <p>🧪 Tecnologia: ${n.tech}</p>
+
+      <select onchange="mapView=this.value">
+        <option value="normal">Vista normale</option>
+        <option value="diplomacy">Vista diplomatica</option>
+      </select>
+
+      <br><br>
+      <button onclick="nextTurn()">Avanza turno</button>
+    </div>
+  `;
 }
 
 /* ===== DRAW ===== */
 function draw(){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
   ctx.fillStyle="#1e40af";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
   ctx.setTransform(transform.k,0,0,transform.k,transform.x,transform.y);
 
   regions.forEach(r=>{
-    const state=game.regions[r._name];
+    const nation=nations[r._name];
+    let color=nation.color;
+
+    if(mapView==="diplomacy"){
+      const d=nation.diplomacy[playerNation];
+      color=DIPLO_COLORS[d||"neutral"];
+    }
 
     ctx.beginPath();
     path(r);
-    ctx.fillStyle=COLORS[state.owner];
+    ctx.fillStyle=color;
     ctx.fill();
     ctx.strokeStyle="#000";
     ctx.lineWidth=0.4;
     ctx.stroke();
 
-    const c=path.centroid(r);
-    ctx.fillStyle="#fff";
-    ctx.font="bold 11px system-ui";
-    ctx.textAlign="center";
-    ctx.fillText(state.troops,c[0],c[1]);
-
     if(r===hovered||r===selected){
+      const c=path.centroid(r);
+      ctx.fillStyle="#fff";
       ctx.font="bold 13px system-ui";
-      ctx.fillText(r._name,c[0],c[1]-14);
+      ctx.textAlign="center";
+      ctx.fillText(r._name,c[0],c[1]);
     }
   });
 }
@@ -223,13 +273,7 @@ canvas.addEventListener("mousemove",e=>{
     path(r);
     if(ctx.isPointInPath(x,y)){
       hovered=r;
-      const s=game.regions[r._name];
-      info.innerHTML=`
-        <b>${r._name}</b><br>
-        Owner: ${s.owner==="player"?"TU":"AI"}<br>
-        Truppe: ${s.troops}<br>
-        Turno: ${currentTurn==="player"?"TU":"AI"}
-      `;
+      info.textContent=r._name;
       break;
     }
   }
@@ -237,41 +281,25 @@ canvas.addEventListener("mousemove",e=>{
 });
 
 canvas.addEventListener("click",()=>{
-  if(currentTurn!=="player") return;
-  if(hovered && game.regions[hovered._name].owner==="player"){
-    selected=hovered;
-    draw();
-  }
+  selected=hovered;
+  draw();
 });
 
 /* ===== TURNI ===== */
-document.addEventListener("keydown",e=>{
-  if(e.key==="Enter" && currentTurn==="player"){
-    endTurn();
+function nextTurn(){
+  date.month++;
+  if(date.month>12){
+    date.month=1;
+    date.year++;
   }
-});
 
-function endTurn(){
-  currentTurn="ai";
-  reinforce("ai");
+  const n=nations[playerNation];
+  n.money+=10;
+  n.tech+=0.1;
+
+  buildHUD();
   draw();
-
-  setTimeout(()=>{
-    reinforce("player");
-    currentTurn="player";
-    info.innerHTML="Turno: TU";
-    draw();
-  },700);
-}
-
-function reinforce(owner){
-  for(let k in game.regions){
-    if(game.regions[k].owner===owner){
-      game.regions[k].troops++;
-    }
-  }
 }
 </script>
-
 </body>
 </html>
