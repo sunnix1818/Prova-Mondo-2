@@ -1,67 +1,3 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-<meta charset="UTF-8">
-<title>Control – Base</title>
-
-<script src="https://d3js.org/d3.v7.min.js"></script>
-
-<style>
-html,body{
-  margin:0;
-  padding:0;
-  overflow:hidden;
-  background:#020617;
-  font-family:system-ui;
-}
-canvas{display:block}
-
-/* MENU */
-#menu{
-  position:fixed;
-  inset:0;
-  background:#020617;
-  display:flex;
-  flex-direction:column;
-  justify-content:center;
-  align-items:center;
-  color:white;
-  z-index:10;
-}
-button{
-  width:240px;
-  margin:6px;
-  padding:10px;
-  border:none;
-  border-radius:8px;
-  background:#2563eb;
-  color:white;
-  font-size:15px;
-  cursor:pointer;
-}
-
-/* INFO */
-#info{
-  position:fixed;
-  bottom:10px;
-  left:50%;
-  transform:translateX(-50%);
-  background:rgba(0,0,0,.75);
-  color:white;
-  padding:8px 14px;
-  border-radius:20px;
-  pointer-events:none;
-  font-size:14px;
-}
-</style>
-</head>
-
-<body>
-
-<div id="menu"></div>
-<canvas id="map"></canvas>
-<div id="info" style="display:none"></div>
-
 <script>
 /* ===== BASE ===== */
 const canvas=document.getElementById("map");
@@ -99,15 +35,17 @@ let hovered=null;
 let selected=null;
 let mode="";
 let playerNation="";
+let currentTurn="player";
 
-/* ===== COLORI UNICI ===== */
-function colorFromName(name){
-  let h=0;
-  for(let i=0;i<name.length;i++){
-    h=name.charCodeAt(i)+((h<<5)-h);
-  }
-  return `hsl(${h%360},55%,45%)`;
-}
+const game={
+  regions:{}
+};
+
+/* ===== COLORI OWNER ===== */
+const COLORS={
+  player:"#2563eb",
+  ai:"#dc2626"
+};
 
 /* ===== MENU ===== */
 function showMapMenu(){
@@ -137,7 +75,6 @@ function loadMap(url){
   fetch(url).then(r=>r.json()).then(data=>{
     regions=data.features.map(r=>{
       r._name=r.properties.NAME||r.properties.ADMIN||r.properties.name;
-      r._color=colorFromName(r._name);
       return r;
     });
     showNationMenu();
@@ -148,6 +85,7 @@ function loadMap(url){
 function showNationMenu(){
   const nations=[...new Set(regions.map(r=>r._name))].sort();
   menu.innerHTML="<h2>Scegli la nazione</h2>";
+
   nations.forEach(n=>{
     const b=document.createElement("button");
     b.textContent=n;
@@ -155,10 +93,25 @@ function showNationMenu(){
       playerNation=n;
       menu.style.display="none";
       info.style.display="block";
-      draw();
+      initGame();
     };
     menu.appendChild(b);
   });
+}
+
+/* ===== INIT GAME ===== */
+function initGame(){
+  game.regions={};
+
+  regions.forEach(r=>{
+    game.regions[r._name]={
+      owner: r._name===playerNation ? "player" : "ai",
+      troops: r._name===playerNation ? 5 : 1
+    };
+  });
+
+  info.innerHTML="Turno: TU";
+  draw();
 }
 
 /* ===== DRAW ===== */
@@ -172,20 +125,25 @@ function draw(){
   ctx.setTransform(transform.k,0,0,transform.k,transform.x,transform.y);
 
   regions.forEach(r=>{
+    const state=game.regions[r._name];
+
     ctx.beginPath();
     path(r);
-    ctx.fillStyle=r._color;
+    ctx.fillStyle=COLORS[state.owner];
     ctx.fill();
     ctx.strokeStyle="#000";
     ctx.lineWidth=0.4;
     ctx.stroke();
 
-    if(r===hovered || r===selected){
-      const c=path.centroid(r);
-      ctx.fillStyle="#fff";
+    const c=path.centroid(r);
+    ctx.fillStyle="#fff";
+    ctx.font="bold 11px system-ui";
+    ctx.textAlign="center";
+    ctx.fillText(state.troops,c[0],c[1]);
+
+    if(r===hovered||r===selected){
       ctx.font="bold 13px system-ui";
-      ctx.textAlign="center";
-      ctx.fillText(r._name,c[0],c[1]);
+      ctx.fillText(r._name,c[0],c[1]-14);
     }
   });
 }
@@ -201,7 +159,13 @@ canvas.addEventListener("mousemove",e=>{
     path(r);
     if(ctx.isPointInPath(x,y)){
       hovered=r;
-      info.textContent=r._name+(r._name===playerNation?" (TU)":"");
+      const s=game.regions[r._name];
+      info.innerHTML=`
+        <b>${r._name}</b><br>
+        Owner: ${s.owner==="player"?"TU":"AI"}<br>
+        Truppe: ${s.troops}<br>
+        Turno: ${currentTurn==="player"?"TU":"AI"}
+      `;
       break;
     }
   }
@@ -209,9 +173,38 @@ canvas.addEventListener("mousemove",e=>{
 });
 
 canvas.addEventListener("click",()=>{
-  selected=hovered;
-  draw();
+  if(currentTurn!=="player") return;
+  if(hovered && game.regions[hovered._name].owner==="player"){
+    selected=hovered;
+    draw();
+  }
 });
+
+/* ===== TURNI ===== */
+document.addEventListener("keydown",e=>{
+  if(e.key==="Enter" && currentTurn==="player"){
+    endTurn();
+  }
+});
+
+function endTurn(){
+  currentTurn="ai";
+  reinforce("ai");
+  draw();
+
+  setTimeout(()=>{
+    reinforce("player");
+    currentTurn="player";
+    info.innerHTML="Turno: TU";
+    draw();
+  },700);
+}
+
+function reinforce(owner){
+  for(let k in game.regions){
+    if(game.regions[k].owner===owner){
+      game.regions[k].troops++;
+    }
+  }
+}
 </script>
-</body>
-</html>
