@@ -94,9 +94,12 @@ Promise.all([
 function draw() {
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = "#020617";
+
+    // mare azzurro
+    ctx.fillStyle = "#1e40af";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
+    // applica zoom/pan
     ctx.setTransform(
         transform.k,0,0,
         transform.k,
@@ -113,20 +116,6 @@ function draw() {
         ctx.strokeStyle = "rgba(0,0,0,0.6)";
         ctx.lineWidth = 0.35;
         ctx.stroke();
-
-        if (r === hovered) {
-            ctx.strokeStyle = "#fde047";
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-
-        if (transform.k > 6) {
-            const c = path.centroid(r);
-            ctx.fillStyle = "rgba(255,255,255,0.8)";
-            ctx.font = "11px system-ui";
-            ctx.textAlign = "center";
-            ctx.fillText(r.properties.name, c[0], c[1]);
-        }
     });
 
     /* CONFINI NAZIONALI */
@@ -136,15 +125,20 @@ function draw() {
         ctx.strokeStyle = "#000";
         ctx.lineWidth = 1.4;
         ctx.stroke();
-
-        if (transform.k > 2) {
-            const ctd = path.centroid(c);
-            ctx.fillStyle = "rgba(255,255,255,0.9)";
-            ctx.font = "bold 14px system-ui";
-            ctx.textAlign = "center";
-            ctx.fillText(c.properties.name || "", ctd[0], ctd[1]);
-        }
     });
+
+    /* MOSTRA SOLO LA REGIONE SELEZIONATA / HOVER */
+    if (hovered) {
+        const c = path.centroid(hovered);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 14px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(
+            hovered.properties.name + " — " + hovered.properties.admin,
+            c[0],
+            c[1]
+        );
+    }
 }
 
 /* ===== INTERAZIONE ===== */
