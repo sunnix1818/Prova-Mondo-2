@@ -2,64 +2,72 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>Control</title>
+<title>Control – Base</title>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
 
 <style>
-html,body{margin:0;padding:0;overflow:hidden;background:#020617;font-family:system-ui}
-canvas{display:block}
-#ui,#menu{
-  position:fixed;
-  background:rgba(0,0,0,.85);
-  color:white;
-  border-radius:12px;
-  padding:14px;
+html,body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:#020617;
+  font-family:system-ui;
 }
-#ui{top:10px;left:10px;min-width:230px}
+canvas{display:block}
+
+/* MENU */
 #menu{
+  position:fixed;
   inset:0;
+  background:#020617;
   display:flex;
   flex-direction:column;
-  align-items:center;
   justify-content:center;
+  align-items:center;
+  color:white;
   z-index:10;
 }
 button{
-  width:200px;
+  width:240px;
   margin:6px;
   padding:10px;
   border:none;
   border-radius:8px;
-  font-size:15px;
-  cursor:pointer;
   background:#2563eb;
   color:white;
+  font-size:15px;
+  cursor:pointer;
+}
+
+/* INFO */
+#info{
+  position:fixed;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(0,0,0,.75);
+  color:white;
+  padding:8px 14px;
+  border-radius:20px;
+  pointer-events:none;
+  font-size:14px;
 }
 </style>
 </head>
 
 <body>
 
-<div id="menu">
-  <h2>CONTROL</h2>
-  <button onclick="startGame('europe')">🇪🇺 Europa</button>
-  <button onclick="startGame('world')">🌍 Mondo</button>
-</div>
-
+<div id="menu"></div>
 <canvas id="map"></canvas>
-
-<div id="ui">
-  <div id="info">Scegli modalità</div>
-  <button id="endTurn">Fine turno</button>
-</div>
+<div id="info" style="display:none"></div>
 
 <script>
 /* ===== BASE ===== */
 const canvas=document.getElementById("map");
 const ctx=canvas.getContext("2d");
+const menu=document.getElementById("menu");
 const info=document.getElementById("info");
-const endTurnBtn=document.getElementById("endTurn");
 
 function resize(){
   canvas.width=innerWidth;
@@ -77,30 +85,43 @@ const path=d3.geoPath(projection,ctx);
 /* ===== ZOOM ===== */
 let transform=d3.zoomIdentity;
 d3.select(canvas).call(
-  d3.zoom().scaleExtent([1,10]).on("zoom",e=>{
-    transform=e.transform;
-    draw();
-  })
+  d3.zoom()
+    .scaleExtent([1,10])
+    .on("zoom",e=>{
+      transform=e.transform;
+      draw();
+    })
 );
 
-/* ===== GAME ===== */
+/* ===== STATE ===== */
 let regions=[];
+let hovered=null;
 let selected=null;
-let fromRegion=null;
 let mode="";
+let playerNation="";
 
-const players=[
-  {name:"Player",color:"#2563eb",ai:false},
-  {name:"AI",color:"#16a34a",ai:true}
-];
-let currentPlayer=0;
+/* ===== COLORI UNICI ===== */
+function colorFromName(name){
+  let h=0;
+  for(let i=0;i<name.length;i++){
+    h=name.charCodeAt(i)+((h<<5)-h);
+  }
+  return `hsl(${h%360},55%,45%)`;
+}
 
-const game={regions:{}};
+/* ===== MENU ===== */
+function showMapMenu(){
+  menu.innerHTML=`
+    <h2>Seleziona mappa</h2>
+    <button onclick="selectMap('europe')">🇪🇺 Europa</button>
+    <button onclick="selectMap('world')">🌍 Mondo</button>
+  `;
+}
+showMapMenu();
 
-/* ===== START ===== */
-function startGame(m){
+function selectMap(m){
   mode=m;
-  document.getElementById("menu").style.display="none";
+  menu.innerHTML="<h2>Caricamento…</h2>";
 
   if(mode==="europe"){
     projection.center([15,55]).scale(650);
@@ -114,164 +135,83 @@ function startGame(m){
 /* ===== LOAD MAP ===== */
 function loadMap(url){
   fetch(url).then(r=>r.json()).then(data=>{
-    regions=data.features;
-    initRegions();
-    draw();
+    regions=data.features.map(r=>{
+      r._name=r.properties.NAME||r.properties.ADMIN||r.properties.name;
+      r._color=colorFromName(r._name);
+      return r;
+    });
+    showNationMenu();
   });
 }
 
-function initRegions(){
-  game.regions={};
-  regions.forEach(r=>{
-    const name=r.properties.NAME||r.properties.ADMIN||r.properties.name;
-    r._name=name;
-    game.regions[name]={
-      owner:players[Math.floor(Math.random()*players.length)],
-      troops:Math.floor(Math.random()*3)+1,
-      neighbors:[]
+/* ===== SELEZIONE NAZIONE ===== */
+function showNationMenu(){
+  const nations=[...new Set(regions.map(r=>r._name))].sort();
+  menu.innerHTML="<h2>Scegli la nazione</h2>";
+  nations.forEach(n=>{
+    const b=document.createElement("button");
+    b.textContent=n;
+    b.onclick=()=>{
+      playerNation=n;
+      menu.style.display="none";
+      info.style.display="block";
+      draw();
     };
+    menu.appendChild(b);
   });
-  calcAdjacency();
-}
-
-/* ===== ADIACENZE ===== */
-function calcAdjacency(){
-  for(let a of regions){
-    for(let b of regions){
-      if(a===b) continue;
-      if(d3.geoIntersects(a,b)){
-        game.regions[a._name].neighbors.push(b._name);
-      }
-    }
-  }
 }
 
 /* ===== DRAW ===== */
 function draw(){
   ctx.setTransform(1,0,0,1,0,0);
   ctx.clearRect(0,0,canvas.width,canvas.height);
+
   ctx.fillStyle="#1e40af";
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
   ctx.setTransform(transform.k,0,0,transform.k,transform.x,transform.y);
 
   regions.forEach(r=>{
-    const state=game.regions[r._name];
     ctx.beginPath();
     path(r);
-    ctx.fillStyle=state.owner.color;
+    ctx.fillStyle=r._color;
     ctx.fill();
     ctx.strokeStyle="#000";
-    ctx.lineWidth=0.6;
+    ctx.lineWidth=0.4;
     ctx.stroke();
 
-    const c=path.centroid(r);
-    ctx.fillStyle="#fff";
-    ctx.font="10px system-ui";
-    ctx.textAlign="center";
-    ctx.fillText(state.troops,c[0],c[1]);
-
-    if(selected===r){
-      ctx.strokeStyle="#facc15";
-      ctx.lineWidth=2;
-      ctx.stroke();
+    if(r===hovered || r===selected){
+      const c=path.centroid(r);
+      ctx.fillStyle="#fff";
+      ctx.font="bold 13px system-ui";
+      ctx.textAlign="center";
+      ctx.fillText(r._name,c[0],c[1]);
     }
   });
 }
 
-/* ===== CLICK ===== */
-canvas.addEventListener("click",e=>{
-  if(players[currentPlayer].ai) return;
-
+/* ===== INTERAZIONE ===== */
+canvas.addEventListener("mousemove",e=>{
   const x=(e.offsetX-transform.x)/transform.k;
   const y=(e.offsetY-transform.y)/transform.k;
+  hovered=null;
 
   for(let r of regions){
     ctx.beginPath();
     path(r);
     if(ctx.isPointInPath(x,y)){
-      const state=game.regions[r._name];
-
-      if(!fromRegion){
-        if(state.owner!==players[currentPlayer]) return;
-        fromRegion=r;
-        selected=r;
-      }else{
-        attack(fromRegion,r);
-        fromRegion=null;
-        selected=null;
-      }
-
-      info.innerHTML=`
-        <b>${r._name}</b><br>
-        Owner: ${state.owner.name}<br>
-        Truppe: ${state.troops}<br>
-        Turno: ${players[currentPlayer].name}
-      `;
-      draw();
+      hovered=r;
+      info.textContent=r._name+(r._name===playerNation?" (TU)":"");
       break;
     }
   }
+  draw();
 });
 
-/* ===== ATTACCO ===== */
-function attack(from,to){
-  if(from===to) return;
-
-  const A=game.regions[from._name];
-  const B=game.regions[to._name];
-
-  if(!A.neighbors.includes(to._name)) return;
-  if(A.troops<2) return;
-
-  const atk=A.troops-1;
-  const def=B.troops;
-
-  if(atk>def){
-    B.owner=A.owner;
-    B.troops=atk-def;
-  }else{
-    B.troops-=atk;
-  }
-  A.troops=1;
-}
-
-/* ===== TURNI ===== */
-endTurnBtn.onclick=()=>{
-  currentPlayer=(currentPlayer+1)%players.length;
-  reinforce();
-
-  if(players[currentPlayer].ai){
-    setTimeout(aiTurn,600);
-  }
-  info.textContent="Turno: "+players[currentPlayer].name;
+canvas.addEventListener("click",()=>{
+  selected=hovered;
   draw();
-};
-
-function reinforce(){
-  for(let k in game.regions){
-    if(game.regions[k].owner===players[currentPlayer]){
-      game.regions[k].troops++;
-    }
-  }
-}
-
-/* ===== AI ===== */
-function aiTurn(){
-  for(let r of regions){
-    const A=game.regions[r._name];
-    if(A.owner!==players[currentPlayer]||A.troops<2) continue;
-
-    for(let n of A.neighbors){
-      const B=game.regions[n];
-      if(B.owner!==A.owner){
-        attack(r,regions.find(x=>x._name===n));
-        break;
-      }
-    }
-  }
-  endTurnBtn.onclick();
-}
+});
 </script>
 </body>
 </html>
