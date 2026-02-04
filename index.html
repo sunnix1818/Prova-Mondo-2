@@ -2,162 +2,201 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>Mappa Strategica Mondiale</title>
+<title>Control Europe</title>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
-<script src="https://unpkg.com/topojson@3"></script>
 
 <style>
-html, body {
-    margin: 0;
-    padding: 0;
-    background: #020617;
-    overflow: hidden;
-    font-family: system-ui, sans-serif;
+html,body{margin:0;padding:0;overflow:hidden;background:#020617;font-family:system-ui}
+canvas{display:block}
+#ui{
+  position:fixed;
+  top:10px;left:10px;
+  background:rgba(0,0,0,.8);
+  color:#fff;
+  padding:12px;
+  border-radius:10px;
+  min-width:240px;
 }
-canvas { display: block; }
-#ui {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    background: rgba(0,0,0,0.75);
-    color: white;
-    padding: 10px 14px;
-    border-radius: 10px;
-    font-size: 14px;
+button{
+  margin-top:6px;
+  width:100%;
+  background:#2563eb;
+  border:none;
+  padding:6px;
+  color:white;
+  border-radius:6px;
+  cursor:pointer;
 }
 </style>
 </head>
 
 <body>
 <canvas id="map"></canvas>
-<div id="ui"><div id="info">Caricamento…</div></div>
+<div id="ui">
+  <div id="info">Caricamento…</div>
+  <button id="endTurn">Fine turno</button>
+</div>
 
 <script>
 /* ===== BASE ===== */
-const canvas = document.getElementById("map");
-const ctx = canvas.getContext("2d");
-const info = document.getElementById("info");
+const canvas=document.getElementById("map");
+const ctx=canvas.getContext("2d");
+const info=document.getElementById("info");
+const endTurnBtn=document.getElementById("endTurn");
 
-function resize() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+function resize(){
+  canvas.width=innerWidth;
+  canvas.height=innerHeight;
 }
 resize();
-window.addEventListener("resize", resize);
+addEventListener("resize",resize);
 
-/* ===== PROIEZIONE ===== */
-const projection = d3.geoMercator()
-    .scale(280)
-    .translate([canvas.width / 2, canvas.height / 2]);
+/* ===== PROIEZIONE EUROPA ===== */
+const projection=d3.geoMercator()
+  .center([15,55])
+  .scale(650)
+  .translate([canvas.width/2,canvas.height/2]);
 
-const path = d3.geoPath(projection, ctx);
+const path=d3.geoPath(projection,ctx);
 
 /* ===== ZOOM ===== */
-let transform = d3.zoomIdentity;
-
+let transform=d3.zoomIdentity;
 d3.select(canvas).call(
-    d3.zoom()
-    .scaleExtent([0.5, 20])
-    .on("zoom", e => {
-        transform = e.transform;
-        draw();
-    })
+  d3.zoom().scaleExtent([1,8]).on("zoom",e=>{
+    transform=e.transform;
+    draw();
+  })
 );
 
-/* ===== DATI ===== */
-let countries = [];
-let regions = [];
-let hovered = null;
+/* ===== GAME STATE ===== */
+let regions=[];
+let selected=null;
+let fromRegion=null;
 
-/* ===== COLORI ===== */
-function nationColor(name="X") {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) {
-        h = name.charCodeAt(i) + ((h << 5) - h);
-    }
-    return `hsl(${h % 360},50%,45%)`;
-}
+const players=["Francia","Prussia"];
+let currentPlayer=0;
 
-/* ===== LOAD (LINK ESTERNI – GITHUB SAFE) ===== */
-Promise.all([
-    fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json").then(r=>r.json()),
-    fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson").then(r=>r.json())
-]).then(([world, admin1]) => {
-    countries = topojson.feature(world, world.objects.countries).features;
-    regions = admin1.features;
-    info.textContent = "Mappa pronta";
-    draw();
+const game={
+  regions:{}
+};
+
+/* ===== LOAD EUROPA ===== */
+fetch("https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson")
+.then(r=>r.json())
+.then(data=>{
+  regions=data.features;
+
+  regions.forEach(r=>{
+    game.regions[r.properties.NAME]={
+      owner:players[Math.floor(Math.random()*players.length)],
+      troops:Math.floor(Math.random()*3)+1
+    };
+  });
+
+  draw();
 });
 
 /* ===== DRAW ===== */
-function draw() {
-    ctx.setTransform(1,0,0,1,0,0);
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+function draw(){
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#1e40af";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
-    // mare azzurro
-    ctx.fillStyle = "#1e40af";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(transform.k,0,0,transform.k,transform.x,transform.y);
 
-    // applica zoom/pan
-    ctx.setTransform(
-        transform.k,0,0,
-        transform.k,
-        transform.x,
-        transform.y
-    );
+  regions.forEach(r=>{
+    const state=game.regions[r.properties.NAME];
 
-    /* REGIONI */
-    regions.forEach(r => {
-        ctx.beginPath();
-        path(r);
-        ctx.fillStyle = nationColor(r.properties.admin);
-        ctx.fill();
-        ctx.strokeStyle = "rgba(0,0,0,0.6)";
-        ctx.lineWidth = 0.35;
-        ctx.stroke();
-    });
+    ctx.beginPath();
+    path(r);
+    ctx.fillStyle=state.owner==="Francia"?"#2563eb":"#16a34a";
+    ctx.fill();
+    ctx.strokeStyle="#000";
+    ctx.lineWidth=0.6;
+    ctx.stroke();
 
-    /* CONFINI NAZIONALI */
-    countries.forEach(c => {
-        ctx.beginPath();
-        path(c);
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 1.4;
-        ctx.stroke();
-    });
+    const c=path.centroid(r);
+    ctx.fillStyle="#fff";
+    ctx.font="10px system-ui";
+    ctx.textAlign="center";
+    ctx.fillText(state.troops,c[0],c[1]);
 
-    /* MOSTRA SOLO LA REGIONE SELEZIONATA / HOVER */
-    if (hovered) {
-        const c = path.centroid(hovered);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 14px system-ui";
-        ctx.textAlign = "center";
-        ctx.fillText(
-            hovered.properties.name + " — " + hovered.properties.admin,
-            c[0],
-            c[1]
-        );
+    if(selected===r){
+      ctx.strokeStyle="#facc15";
+      ctx.lineWidth=2;
+      ctx.stroke();
     }
+  });
 }
 
-/* ===== INTERAZIONE ===== */
-canvas.addEventListener("mousemove", e => {
-    const x = (e.offsetX - transform.x) / transform.k;
-    const y = (e.offsetY - transform.y) / transform.k;
-    hovered = null;
+/* ===== CLICK ===== */
+canvas.addEventListener("click",e=>{
+  const x=(e.offsetX-transform.x)/transform.k;
+  const y=(e.offsetY-transform.y)/transform.k;
 
-    for (let r of regions) {
-        ctx.beginPath();
-        path(r);
-        if (ctx.isPointInPath(x,y)) {
-            hovered = r;
-            info.textContent = `${r.properties.name} — ${r.properties.admin}`;
-            break;
-        }
+  for(let r of regions){
+    ctx.beginPath();
+    path(r);
+    if(ctx.isPointInPath(x,y)){
+      const state=game.regions[r.properties.NAME];
+
+      if(!fromRegion){
+        if(state.owner!==players[currentPlayer]) return;
+        fromRegion=r;
+        selected=r;
+      }else{
+        attack(fromRegion,r);
+        fromRegion=null;
+        selected=null;
+      }
+
+      info.innerHTML=`
+        <b>${r.properties.NAME}</b><br>
+        Owner: ${state.owner}<br>
+        Truppe: ${state.troops}<br>
+        Turno: ${players[currentPlayer]}
+      `;
+      draw();
+      break;
     }
-    draw();
+  }
 });
+
+/* ===== ATTACCO ===== */
+function attack(from,to){
+  if(from===to) return;
+
+  const A=game.regions[from.properties.NAME];
+  const B=game.regions[to.properties.NAME];
+
+  if(A.owner!==players[currentPlayer]) return;
+  if(A.troops<2) return;
+
+  const atk=A.troops-1;
+  const def=B.troops;
+
+  if(atk>def){
+    B.owner=A.owner;
+    B.troops=atk-def;
+  }else{
+    B.troops-=atk;
+  }
+  A.troops=1;
+}
+
+/* ===== TURNI ===== */
+endTurnBtn.onclick=()=>{
+  currentPlayer=(currentPlayer+1)%players.length;
+  for(let k in game.regions){
+    if(game.regions[k].owner===players[currentPlayer]){
+      game.regions[k].troops++;
+    }
+  }
+  info.textContent="Turno: "+players[currentPlayer];
+  draw();
+};
 </script>
 </body>
 </html>
