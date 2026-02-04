@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Mappa Strategica Mondiale</title>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://unpkg.com/topojson@3"></script>
+
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    background: #020617;
+    overflow: hidden;
+    font-family: system-ui, sans-serif;
+}
+canvas {
+    display: block;
+}
+#ui {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    background: rgba(0,0,0,0.75);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+<canvas id="map"></canvas>
+
+<div id="ui">
+    <div id="info">Caricamento mappa…</div>
+</div>
+
+<script>
+/* ================== BASE ================== */
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+const info = document.getElementById("info");
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
+
+/* ================== PROIEZIONE ================== */
+const projection = d3.geoMercator()
+    .scale(280)
+    .translate([canvas.width / 2, canvas.height / 2]);
+
+const path = d3.geoPath(projection, ctx);
+
+/* ================== ZOOM ================== */
+let transform = d3.zoomIdentity;
+
+const zoom = d3.zoom()
+    .scaleExtent([0.5, 18])
+    .on("zoom", e => {
+        transform = e.transform;
+        draw();
+    });
+
+d3.select(canvas).call(zoom);
+
+/* ================== DATI ================== */
+let countries = [];
+let regions = [];
+let hoveredRegion = null;
+
+/* ================== COLORI ================== */
+function nationColor(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) {
+        h = name.charCodeAt(i) + ((h << 5) - h);
+    }
+    return `hsl(${h % 360},50%,45%)`;
+}
+
+/* ================== CARICAMENTO MAPPE ================== */
+Promise.all([
+    fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json").then(r=>r.json()),
+    fetch("data/admin1.geojson").then(r=>r.json())
+]).then(([world, admin1]) => {
+
+    countries = topojson.feature(world, world.objects.countries).features;
+    regions = admin1.features;
+
+    info.textContent = "Mappa pronta";
+    draw();
+});
+
+/* ================== DISEGNO ================== */
+function draw() {
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    ctx.fillStyle = "#020617";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.setTransform(
+        transform.k, 0, 0,
+        transform.k,
+        transform.x,
+        transform.y
+    );
+
+    /* ---- REGIONI ---- */
+    regions.forEach(r => {
+        ctx.beginPath();
+        path(r);
+
+        const nation = r.properties.admin || "Unknown";
+        ctx.fillStyle = nationColor(nation);
+        ctx.fill();
+
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
+        ctx.lineWidth = 0.4;
+        ctx.stroke();
+
+        if (r === hoveredRegion) {
+            ctx.strokeStyle = "#fde047";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // nome regione (zoom alto)
+        if (transform.k > 6) {
+            const c = path.centroid(r);
+            ctx.fillStyle = "rgba(255,255,255,0.8)";
+            ctx.font = "11px system-ui";
+            ctx.textAlign = "center";
+            ctx.fillText(r.properties.name, c[0], c[1]);
+        }
+    });
+
+    /* ---- CONFINI NAZIONI ---- */
+    countries.forEach(c => {
+        ctx.beginPath();
+        path(c);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        // nome nazione
+        if (transform.k > 2) {
+            const ctd = path.centroid(c);
+            ctx.fillStyle = "rgba(255,255,255,0.9)";
+            ctx.font = "bold 14px system-ui";
+            ctx.textAlign = "center";
+            ctx.fillText(c.properties.name || "", ctd[0], ctd[1]);
+        }
+    });
+}
+
+/* ================== INTERAZIONE ================== */
+canvas.addEventListener("mousemove", e => {
+    const x = (e.offsetX - transform.x) / transform.k;
+    const y = (e.offsetY - transform.y) / transform.k;
+    hoveredRegion = null;
+
+    for (let r of regions) {
+        ctx.beginPath();
+        path(r);
+        if (ctx.isPointInPath(x,y)) {
+            hoveredRegion = r;
+            info.textContent =
+                `${r.properties.name} — ${r.properties.admin}`;
+            break;
+        }
+    }
+    draw();
+});
+</script>
+</body>
+</html>
