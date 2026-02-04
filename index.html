@@ -2,39 +2,55 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
-<title>Control Europe</title>
+<title>Control</title>
 
 <script src="https://d3js.org/d3.v7.min.js"></script>
 
 <style>
 html,body{margin:0;padding:0;overflow:hidden;background:#020617;font-family:system-ui}
 canvas{display:block}
-#ui{
+#ui,#menu{
   position:fixed;
-  top:10px;left:10px;
-  background:rgba(0,0,0,.8);
-  color:#fff;
-  padding:12px;
-  border-radius:10px;
-  min-width:240px;
+  background:rgba(0,0,0,.85);
+  color:white;
+  border-radius:12px;
+  padding:14px;
+}
+#ui{top:10px;left:10px;min-width:230px}
+#menu{
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  z-index:10;
 }
 button{
-  margin-top:6px;
-  width:100%;
-  background:#2563eb;
+  width:200px;
+  margin:6px;
+  padding:10px;
   border:none;
-  padding:6px;
-  color:white;
-  border-radius:6px;
+  border-radius:8px;
+  font-size:15px;
   cursor:pointer;
+  background:#2563eb;
+  color:white;
 }
 </style>
 </head>
 
 <body>
+
+<div id="menu">
+  <h2>CONTROL</h2>
+  <button onclick="startGame('europe')">🇪🇺 Europa</button>
+  <button onclick="startGame('world')">🌍 Mondo</button>
+</div>
+
 <canvas id="map"></canvas>
+
 <div id="ui">
-  <div id="info">Caricamento…</div>
+  <div id="info">Scegli modalità</div>
   <button id="endTurn">Fine turno</button>
 </div>
 
@@ -52,10 +68,8 @@ function resize(){
 resize();
 addEventListener("resize",resize);
 
-/* ===== PROIEZIONE EUROPA ===== */
+/* ===== PROIEZIONE ===== */
 const projection=d3.geoMercator()
-  .center([15,55])
-  .scale(650)
   .translate([canvas.width/2,canvas.height/2]);
 
 const path=d3.geoPath(projection,ctx);
@@ -63,39 +77,74 @@ const path=d3.geoPath(projection,ctx);
 /* ===== ZOOM ===== */
 let transform=d3.zoomIdentity;
 d3.select(canvas).call(
-  d3.zoom().scaleExtent([1,8]).on("zoom",e=>{
+  d3.zoom().scaleExtent([1,10]).on("zoom",e=>{
     transform=e.transform;
     draw();
   })
 );
 
-/* ===== GAME STATE ===== */
+/* ===== GAME ===== */
 let regions=[];
 let selected=null;
 let fromRegion=null;
+let mode="";
 
-const players=["Francia","Prussia"];
+const players=[
+  {name:"Player",color:"#2563eb",ai:false},
+  {name:"AI",color:"#16a34a",ai:true}
+];
 let currentPlayer=0;
 
-const game={
-  regions:{}
-};
+const game={regions:{}};
 
-/* ===== LOAD EUROPA ===== */
-fetch("https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson")
-.then(r=>r.json())
-.then(data=>{
-  regions=data.features;
+/* ===== START ===== */
+function startGame(m){
+  mode=m;
+  document.getElementById("menu").style.display="none";
 
+  if(mode==="europe"){
+    projection.center([15,55]).scale(650);
+    loadMap("https://raw.githubusercontent.com/leakyMirror/map-of-europe/master/GeoJSON/europe.geojson");
+  }else{
+    projection.center([0,20]).scale(280);
+    loadMap("https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson");
+  }
+}
+
+/* ===== LOAD MAP ===== */
+function loadMap(url){
+  fetch(url).then(r=>r.json()).then(data=>{
+    regions=data.features;
+    initRegions();
+    draw();
+  });
+}
+
+function initRegions(){
+  game.regions={};
   regions.forEach(r=>{
-    game.regions[r.properties.NAME]={
+    const name=r.properties.NAME||r.properties.ADMIN||r.properties.name;
+    r._name=name;
+    game.regions[name]={
       owner:players[Math.floor(Math.random()*players.length)],
-      troops:Math.floor(Math.random()*3)+1
+      troops:Math.floor(Math.random()*3)+1,
+      neighbors:[]
     };
   });
+  calcAdjacency();
+}
 
-  draw();
-});
+/* ===== ADIACENZE ===== */
+function calcAdjacency(){
+  for(let a of regions){
+    for(let b of regions){
+      if(a===b) continue;
+      if(d3.geoIntersects(a,b)){
+        game.regions[a._name].neighbors.push(b._name);
+      }
+    }
+  }
+}
 
 /* ===== DRAW ===== */
 function draw(){
@@ -107,11 +156,10 @@ function draw(){
   ctx.setTransform(transform.k,0,0,transform.k,transform.x,transform.y);
 
   regions.forEach(r=>{
-    const state=game.regions[r.properties.NAME];
-
+    const state=game.regions[r._name];
     ctx.beginPath();
     path(r);
-    ctx.fillStyle=state.owner==="Francia"?"#2563eb":"#16a34a";
+    ctx.fillStyle=state.owner.color;
     ctx.fill();
     ctx.strokeStyle="#000";
     ctx.lineWidth=0.6;
@@ -133,6 +181,8 @@ function draw(){
 
 /* ===== CLICK ===== */
 canvas.addEventListener("click",e=>{
+  if(players[currentPlayer].ai) return;
+
   const x=(e.offsetX-transform.x)/transform.k;
   const y=(e.offsetY-transform.y)/transform.k;
 
@@ -140,7 +190,7 @@ canvas.addEventListener("click",e=>{
     ctx.beginPath();
     path(r);
     if(ctx.isPointInPath(x,y)){
-      const state=game.regions[r.properties.NAME];
+      const state=game.regions[r._name];
 
       if(!fromRegion){
         if(state.owner!==players[currentPlayer]) return;
@@ -153,10 +203,10 @@ canvas.addEventListener("click",e=>{
       }
 
       info.innerHTML=`
-        <b>${r.properties.NAME}</b><br>
-        Owner: ${state.owner}<br>
+        <b>${r._name}</b><br>
+        Owner: ${state.owner.name}<br>
         Truppe: ${state.troops}<br>
-        Turno: ${players[currentPlayer]}
+        Turno: ${players[currentPlayer].name}
       `;
       draw();
       break;
@@ -168,10 +218,10 @@ canvas.addEventListener("click",e=>{
 function attack(from,to){
   if(from===to) return;
 
-  const A=game.regions[from.properties.NAME];
-  const B=game.regions[to.properties.NAME];
+  const A=game.regions[from._name];
+  const B=game.regions[to._name];
 
-  if(A.owner!==players[currentPlayer]) return;
+  if(!A.neighbors.includes(to._name)) return;
   if(A.troops<2) return;
 
   const atk=A.troops-1;
@@ -189,14 +239,39 @@ function attack(from,to){
 /* ===== TURNI ===== */
 endTurnBtn.onclick=()=>{
   currentPlayer=(currentPlayer+1)%players.length;
+  reinforce();
+
+  if(players[currentPlayer].ai){
+    setTimeout(aiTurn,600);
+  }
+  info.textContent="Turno: "+players[currentPlayer].name;
+  draw();
+};
+
+function reinforce(){
   for(let k in game.regions){
     if(game.regions[k].owner===players[currentPlayer]){
       game.regions[k].troops++;
     }
   }
-  info.textContent="Turno: "+players[currentPlayer];
-  draw();
-};
+}
+
+/* ===== AI ===== */
+function aiTurn(){
+  for(let r of regions){
+    const A=game.regions[r._name];
+    if(A.owner!==players[currentPlayer]||A.troops<2) continue;
+
+    for(let n of A.neighbors){
+      const B=game.regions[n];
+      if(B.owner!==A.owner){
+        attack(r,regions.find(x=>x._name===n));
+        break;
+      }
+    }
+  }
+  endTurnBtn.onclick();
+}
 </script>
 </body>
 </html>
