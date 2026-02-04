@@ -15,9 +15,7 @@ html, body {
     overflow: hidden;
     font-family: system-ui, sans-serif;
 }
-canvas {
-    display: block;
-}
+canvas { display: block; }
 #ui {
     position: fixed;
     top: 10px;
@@ -33,13 +31,10 @@ canvas {
 
 <body>
 <canvas id="map"></canvas>
-
-<div id="ui">
-    <div id="info">Caricamento mappa…</div>
-</div>
+<div id="ui"><div id="info">Caricamento…</div></div>
 
 <script>
-/* ================== BASE ================== */
+/* ===== BASE ===== */
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const info = document.getElementById("info");
@@ -51,32 +46,32 @@ function resize() {
 resize();
 window.addEventListener("resize", resize);
 
-/* ================== PROIEZIONE ================== */
+/* ===== PROIEZIONE ===== */
 const projection = d3.geoMercator()
     .scale(280)
     .translate([canvas.width / 2, canvas.height / 2]);
 
 const path = d3.geoPath(projection, ctx);
 
-/* ================== ZOOM ================== */
+/* ===== ZOOM ===== */
 let transform = d3.zoomIdentity;
 
-const zoom = d3.zoom()
-    .scaleExtent([0.5, 18])
+d3.select(canvas).call(
+    d3.zoom()
+    .scaleExtent([0.5, 20])
     .on("zoom", e => {
         transform = e.transform;
         draw();
-    });
+    })
+);
 
-d3.select(canvas).call(zoom);
-
-/* ================== DATI ================== */
+/* ===== DATI ===== */
 let countries = [];
 let regions = [];
-let hoveredRegion = null;
+let hovered = null;
 
-/* ================== COLORI ================== */
-function nationColor(name) {
+/* ===== COLORI ===== */
+function nationColor(name="X") {
     let h = 0;
     for (let i = 0; i < name.length; i++) {
         h = name.charCodeAt(i) + ((h << 5) - h);
@@ -84,54 +79,47 @@ function nationColor(name) {
     return `hsl(${h % 360},50%,45%)`;
 }
 
-/* ================== CARICAMENTO MAPPE ================== */
+/* ===== LOAD (LINK ESTERNI – GITHUB SAFE) ===== */
 Promise.all([
     fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json").then(r=>r.json()),
-    fetch("data/admin1.geojson").then(r=>r.json())
+    fetch("https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_1_states_provinces.geojson").then(r=>r.json())
 ]).then(([world, admin1]) => {
-
     countries = topojson.feature(world, world.objects.countries).features;
     regions = admin1.features;
-
     info.textContent = "Mappa pronta";
     draw();
 });
 
-/* ================== DISEGNO ================== */
+/* ===== DRAW ===== */
 function draw() {
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,canvas.width,canvas.height);
-
     ctx.fillStyle = "#020617";
     ctx.fillRect(0,0,canvas.width,canvas.height);
 
     ctx.setTransform(
-        transform.k, 0, 0,
+        transform.k,0,0,
         transform.k,
         transform.x,
         transform.y
     );
 
-    /* ---- REGIONI ---- */
+    /* REGIONI */
     regions.forEach(r => {
         ctx.beginPath();
         path(r);
-
-        const nation = r.properties.admin || "Unknown";
-        ctx.fillStyle = nationColor(nation);
+        ctx.fillStyle = nationColor(r.properties.admin);
         ctx.fill();
-
         ctx.strokeStyle = "rgba(0,0,0,0.6)";
-        ctx.lineWidth = 0.4;
+        ctx.lineWidth = 0.35;
         ctx.stroke();
 
-        if (r === hoveredRegion) {
+        if (r === hovered) {
             ctx.strokeStyle = "#fde047";
             ctx.lineWidth = 2;
             ctx.stroke();
         }
 
-        // nome regione (zoom alto)
         if (transform.k > 6) {
             const c = path.centroid(r);
             ctx.fillStyle = "rgba(255,255,255,0.8)";
@@ -141,7 +129,7 @@ function draw() {
         }
     });
 
-    /* ---- CONFINI NAZIONI ---- */
+    /* CONFINI NAZIONALI */
     countries.forEach(c => {
         ctx.beginPath();
         path(c);
@@ -149,7 +137,6 @@ function draw() {
         ctx.lineWidth = 1.4;
         ctx.stroke();
 
-        // nome nazione
         if (transform.k > 2) {
             const ctd = path.centroid(c);
             ctx.fillStyle = "rgba(255,255,255,0.9)";
@@ -160,19 +147,18 @@ function draw() {
     });
 }
 
-/* ================== INTERAZIONE ================== */
+/* ===== INTERAZIONE ===== */
 canvas.addEventListener("mousemove", e => {
     const x = (e.offsetX - transform.x) / transform.k;
     const y = (e.offsetY - transform.y) / transform.k;
-    hoveredRegion = null;
+    hovered = null;
 
     for (let r of regions) {
         ctx.beginPath();
         path(r);
         if (ctx.isPointInPath(x,y)) {
-            hoveredRegion = r;
-            info.textContent =
-                `${r.properties.name} — ${r.properties.admin}`;
+            hovered = r;
+            info.textContent = `${r.properties.name} — ${r.properties.admin}`;
             break;
         }
     }
