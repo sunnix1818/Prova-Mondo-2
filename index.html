@@ -1,3 +1,67 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Control – Base</title>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:#020617;
+  font-family:system-ui;
+}
+canvas{display:block}
+
+/* MENU */
+#menu{
+  position:fixed;
+  inset:0;
+  background:#020617;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  color:white;
+  z-index:10;
+}
+button{
+  width:240px;
+  margin:6px;
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  background:#2563eb;
+  color:white;
+  font-size:15px;
+  cursor:pointer;
+}
+
+/* INFO */
+#info{
+  position:fixed;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  background:rgba(0,0,0,.75);
+  color:white;
+  padding:8px 14px;
+  border-radius:20px;
+  pointer-events:none;
+  font-size:14px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="menu"></div>
+<canvas id="map"></canvas>
+<div id="info" style="display:none"></div>
+
 <script>
 /* ===== BASE ===== */
 const canvas=document.getElementById("map");
@@ -208,3 +272,6 @@ function reinforce(owner){
   }
 }
 </script>
+
+</body>
+</html>
